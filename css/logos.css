@@ -1,0 +1,110 @@
+/* Logo Display Styles */
+.nehabi-logos-container {
+    width: 100%;
+    margin: 20px 0;
+}
+
+.nehabi-logos-grid {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.nehabi-logos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.nehabi-logos-carousel {
+    position: relative;
+}
+
+.nehabi-logo-item {
+    position: relative;
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.nehabi-logo-item:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.nehabi-logo-image {
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+    aspect-ratio: 1 / 1;
+}
+
+.nehabi-logo-details {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.nehabi-logo-item:hover .nehabi-logo-details {
+    opacity: 1;
+}
+
+.nehabi-logo-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.nehabi-logo-meta {
+    font-size: 12px;
+    color: #e0e0e0;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .nehabi-logos-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .nehabi-logos-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Carousel Specific Styles */
+.nehabi-logos-carousel-wrapper {
+    position: relative;
+}
+
+.nehabi-logos-carousel-wrapper .slick-prev,
+.nehabi-logos-carousel-wrapper .slick-next {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.nehabi-logos-carousel-wrapper .slick-prev {
+    left: 10px;
+}
+
+.nehabi-logos-carousel-wrapper .slick-next {
+    right: 10px;
+}

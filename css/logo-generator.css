@@ -1,0 +1,142 @@
+.nehabi-logo-generator-modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+}
+
+.logo-generator-modal-content {
+    background-color: #fefefe;
+    margin: 10% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 600px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.logo-generator-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 15px;
+    margin-bottom: 20px;
+}
+
+.logo-generator-close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #6c757d;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.logo-generator-close-btn:hover {
+    color: #dc3545;
+}
+
+.style-grid, .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+}
+
+.style-option, .color-option {
+    position: relative;
+    cursor: pointer;
+}
+
+.style-option input, .color-option input {
+    position: absolute;
+    opacity: 0;
+}
+
+.style-preview, .color-preview {
+    display: block;
+    padding: 10px;
+    border: 2px solid transparent;
+    border-radius: 5px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.style-option input:checked + .style-preview,
+.color-option input:checked + .color-preview {
+    border-color: #007bff;
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.color-preview {
+    height: 50px;
+}
+
+.color-preview.blue-white { background: linear-gradient(45deg, #007bff, white); }
+.color-preview.black-gold { background: linear-gradient(45deg, black, gold); }
+.color-preview.green-gray { background: linear-gradient(45deg, #28a745, #6c757d); }
+.color-preview.red-black { background: linear-gradient(45deg, #dc3545, black); }
+.color-preview.custom { 
+    background: repeating-linear-gradient(
+        45deg,
+        #f8f9fa,
+        #f8f9fa 10px,
+        #e9ecef 10px,
+        #e9ecef 20px
+    );
+}
+
+#custom-colors {
+    margin-top: 15px;
+}
+
+.custom-colors-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.color-input {
+    display: flex;
+    flex-direction: column;
+}
+
+.color-input input[type="color"] {
+    width: 100%;
+    height: 50px;
+    padding: 0;
+    border: none;
+    background: none;
+}
+
+.logo-result {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.logo-result img {
+    max-width: 100%;
+    height: auto;
+    margin-bottom: 15px;
+}
+
+.logo-actions {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.error {
+    color: #dc3545;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    padding: 10px;
+    border-radius: 5px;
+}
