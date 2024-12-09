@@ -837,6 +837,33 @@ class NehabhAIAssistant {
         wp_register_style('slick-carousel', 'https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css', [], '1.8.1');
         wp_register_script('slick-carousel', 'https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js', ['jquery'], '1.8.1', true);
     }
+
+    // Enqueue Content Generator Scripts and Styles
+    public function enqueue_content_generator_assets() {
+        // Enqueue JS
+        wp_enqueue_script(
+            'nehabi-content-generator', 
+            plugin_dir_url(__FILE__) . 'assets/js/content-generator.js', 
+            ['jquery'], 
+            '1.0.0', 
+            true
+        );
+
+        // Enqueue CSS
+        wp_enqueue_style(
+            'nehabi-content-generator', 
+            plugin_dir_url(__FILE__) . 'css/content-generator.css', 
+            [], 
+            '1.0.0'
+        );
+
+        // Localize script with AJAX URL and nonce
+        wp_localize_script('nehabi-content-generator', 'nehabi_content_params', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'content_nonce' => wp_create_nonce('nehabi_content_nonce')
+        ]);
+    }
+    add_action('admin_enqueue_scripts', [$this, 'enqueue_content_generator_assets']);
 }
 
 // Initialize the plugin
@@ -844,3 +871,234 @@ function nehabi_ai_assistant_init() {
     new NehabhAIAssistant();
 }
 add_action('plugins_loaded', 'nehabi_ai_assistant_init');
+
+// Image and Text Generation Module
+class NehAI_Content_Generator {
+    private $huggingface_api_key;
+    private $image_models = [
+        'stable-diffusion' => 'stabilityai/stable-diffusion-xl-base-1.0',
+        'sdxl-turbo' => 'stabilityai/sdxl-turbo',
+        'kandinsky' => 'kandinsky-community/kandinsky-2-2-decoder'
+    ];
+    private $text_models = [
+        'gpt-2' => 'gpt2-large',
+        'bloom' => 'bigscience/bloom',
+        'llama' => 'meta-llama/Llama-2-7b-chat-hf'
+    ];
+
+    public function __construct() {
+        $this->huggingface_api_key = get_option('nehabi_huggingface_api_key', '');
+        add_action('wp_ajax_nehabi_generate_image', [$this, 'generate_image']);
+        add_action('wp_ajax_nehabi_generate_text', [$this, 'generate_text']);
+        add_action('wp_ajax_nehabi_save_content', [$this, 'save_generated_content']);
+    }
+
+    public function generate_image() {
+        check_ajax_referer('nehabi_content_nonce', 'security');
+
+        $prompt = sanitize_text_field($_POST['prompt']);
+        $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : 'stable-diffusion';
+        $width = isset($_POST['width']) ? intval($_POST['width']) : 512;
+        $height = isset($_POST['height']) ? intval($_POST['height']) : 512;
+
+        $api_url = "https://api-inference.huggingface.co/models/{$this->image_models[$model]}";
+        
+        $response = wp_remote_post($api_url, [
+            'method' => 'POST',
+            'timeout' => 120,
+            'headers' => [
+                'Authorization' => "Bearer {$this->huggingface_api_key}",
+                'Content-Type' => 'application/json'
+            ],
+            'body' => json_encode([
+                'inputs' => $prompt,
+                'parameters' => [
+                    'width' => $width,
+                    'height' => $height
+                ]
+            ])
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error('API request failed: ' . $response->get_error_message());
+        }
+
+        $image_data = wp_remote_retrieve_body($response);
+        
+        // Save image to WordPress media library
+        $upload = wp_upload_bits(
+            "generated-image-" . time() . ".png", 
+            null, 
+            $image_data
+        );
+
+        if ($upload['error']) {
+            wp_send_json_error('Image upload failed: ' . $upload['error']);
+        }
+
+        $attachment = [
+            'guid' => $upload['url'],
+            'post_mime_type' => 'image/png',
+            'post_title' => "Generated Image: " . $prompt,
+            'post_content' => '',
+            'post_status' => 'inherit'
+        ];
+
+        $attachment_id = wp_insert_attachment($attachment, $upload['file']);
+        
+        wp_send_json_success([
+            'url' => $upload['url'],
+            'id' => $attachment_id,
+            'prompt' => $prompt
+        ]);
+    }
+
+    public function generate_text() {
+        check_ajax_referer('nehabi_content_nonce', 'security');
+
+        $prompt = sanitize_text_field($_POST['prompt']);
+        $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : 'gpt-2';
+        $max_length = isset($_POST['max_length']) ? intval($_POST['max_length']) : 200;
+
+        $api_url = "https://api-inference.huggingface.co/models/{$this->text_models[$model]}";
+        
+        $response = wp_remote_post($api_url, [
+            'method' => 'POST',
+            'timeout' => 120,
+            'headers' => [
+                'Authorization' => "Bearer {$this->huggingface_api_key}",
+                'Content-Type' => 'application/json'
+            ],
+            'body' => json_encode([
+                'inputs' => $prompt,
+                'parameters' => [
+                    'max_length' => $max_length,
+                    'num_return_sequences' => 1
+                ]
+            ])
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error('API request failed: ' . $response->get_error_message());
+        }
+
+        $text_data = wp_remote_retrieve_body($response);
+        $generated_text = json_decode($text_data, true)[0]['generated_text'] ?? '';
+
+        wp_send_json_success([
+            'text' => $generated_text,
+            'prompt' => $prompt
+        ]);
+    }
+
+    public function save_generated_content() {
+        check_ajax_referer('nehabi_content_nonce', 'security');
+
+        $content_type = sanitize_text_field($_POST['content_type']);
+        $content = sanitize_textarea_field($_POST['content']);
+        $title = sanitize_text_field($_POST['title'] ?? 'Generated Content');
+
+        $post_data = [
+            'post_title' => $title,
+            'post_content' => $content,
+            'post_status' => 'draft',
+            'post_type' => "nehabi_{$content_type}"
+        ];
+
+        $post_id = wp_insert_post($post_data);
+
+        if (is_wp_error($post_id)) {
+            wp_send_json_error('Content save failed: ' . $post_id->get_error_message());
+        }
+
+        wp_send_json_success([
+            'id' => $post_id,
+            'edit_link' => get_edit_post_link($post_id)
+        ]);
+    }
+
+    public function register_custom_post_types() {
+        // Generated Image Post Type
+        register_post_type('nehabi_generated_image', [
+            'labels' => [
+                'name' => 'Generated Images',
+                'singular_name' => 'Generated Image'
+            ],
+            'public' => true,
+            'has_archive' => true,
+            'supports' => ['title', 'editor', 'thumbnail', 'custom-fields']
+        ]);
+
+        // Generated Text Post Type
+        register_post_type('nehabi_generated_text', [
+            'labels' => [
+                'name' => 'Generated Texts',
+                'singular_name' => 'Generated Text'
+            ],
+            'public' => true,
+            'has_archive' => true,
+            'supports' => ['title', 'editor', 'custom-fields']
+        ]);
+    }
+
+    public function add_meta_boxes() {
+        // Image Generation Meta Box
+        add_meta_box(
+            'nehabi_image_generation_details',
+            'Image Generation Details',
+            [$this, 'render_image_meta_box'],
+            'nehabi_generated_image',
+            'normal',
+            'default'
+        );
+
+        // Text Generation Meta Box
+        add_meta_box(
+            'nehabi_text_generation_details',
+            'Text Generation Details',
+            [$this, 'render_text_meta_box'],
+            'nehabi_generated_text',
+            'normal',
+            'default'
+        );
+    }
+
+    public function render_image_meta_box($post) {
+        $model = get_post_meta($post->ID, 'nehabi_image_model', true);
+        $prompt = get_post_meta($post->ID, 'nehabi_image_prompt', true);
+        ?>
+        <table class="form-table">
+            <tr>
+                <th>Generation Model</th>
+                <td><?php echo esc_html($model); ?></td>
+            </tr>
+            <tr>
+                <th>Prompt</th>
+                <td><?php echo esc_html($prompt); ?></td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    public function render_text_meta_box($post) {
+        $model = get_post_meta($post->ID, 'nehabi_text_model', true);
+        $prompt = get_post_meta($post->ID, 'nehabi_text_prompt', true);
+        ?>
+        <table class="form-table">
+            <tr>
+                <th>Generation Model</th>
+                <td><?php echo esc_html($model); ?></td>
+            </tr>
+            <tr>
+                <th>Prompt</th>
+                <td><?php echo esc_html($prompt); ?></td>
+            </tr>
+        </table>
+        <?php
+    }
+}
+
+// Initialize the content generator
+$nehabi_content_generator = new NehAI_Content_Generator();
+add_action('init', [$nehabi_content_generator, 'register_custom_post_types']);
+add_action('add_meta_boxes', [$nehabi_content_generator, 'add_meta_boxes']);
