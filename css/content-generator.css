@@ -1,90 +1,117 @@
-/* Content Generator Styles */
-.nehabi-content-generator {
-    background-color: #f8f9fa;
-    border-radius: 10px;
-    padding: 20px;
-    margin-top: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.content-generation-section {
-    background-color: white;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.content-generation-section h3 {
-    border-bottom: 2px solid #007bff;
-    padding-bottom: 10px;
-    margin-bottom: 15px;
-    color: #007bff;
-}
-
-.form-row {
-    display: flex;
-    gap: 15px;
-}
-
-.form-group {
-    flex: 1;
-    margin-bottom: 15px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    color: #495057;
-}
-
-.form-group textarea,
-.form-group select {
+/* Nehabi Content Generator Modal */
+.nehabi-modal {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
     width: 100%;
-    padding: 8px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.nehabi-modal-content {
+    background-color: #fefefe;
+    margin: 10% auto;
+    padding: 20px;
+    border-radius: 10px;
+    width: 80%;
+    max-width: 600px;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.nehabi-close-modal {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.nehabi-close-modal:hover {
+    color: #000;
+}
+
+.content-type-selector {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.content-type-btn {
+    flex: 1;
+    padding: 10px;
+    background-color: #f1f1f1;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.content-type-btn.active {
+    background-color: #007bff;
+    color: white;
+}
+
+.content-generator-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.image-generator, 
+.text-generator {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
 }
 
 .generation-actions {
     display: flex;
-    justify-content: flex-end;
-    margin-top: 15px;
+    gap: 10px;
+}
+
+.generate-btn, 
+.record-btn {
+    padding: 10px 15px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.record-btn {
+    background-color: #17a2b8;
 }
 
 .generation-result {
-    margin-top: 20px;
-    padding: 15px;
-    background-color: #f1f3f5;
-    border-radius: 6px;
+    margin-top: 15px;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
-.generated-image-preview img {
+.generation-result img {
     max-width: 100%;
     height: auto;
-    border-radius: 8px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-radius: 5px;
 }
 
-.generated-text-preview pre {
-    background-color: #f8f9fa;
+.generation-result pre {
+    background-color: #f4f4f4;
     padding: 15px;
-    border-radius: 6px;
+    border-radius: 5px;
     white-space: pre-wrap;
-    word-wrap: break-word;
-    font-family: monospace;
-}
-
-.image-actions,
-.text-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 15px;
 }
 
 .error {
     color: #dc3545;
     background-color: #f8d7da;
     padding: 10px;
-    border-radius: 4px;
+    border-radius: 5px;
+}
+
+/* Admin Bar Styles */
+#wp-admin-bar-nehabi-content-generator .ab-item {
+    color: #00f3ff !important;
 }
