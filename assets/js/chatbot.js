@@ -253,226 +253,161 @@ jQuery(document).ready(function($) {
     // Logo Generation and Manipulation
     function initLogoManipulation() {
         const logoGeneratorPanel = $('#nehabi-logo-generator-panel');
+        const logoCanvasContainer = $('<div>', {
+            id: 'logo-canvas-container',
+            class: 'logo-canvas-container'
+        });
+
+        // Create canvas and overlay for manipulation
         const logoCanvas = $('<canvas>', {
             id: 'logo-manipulation-canvas',
             class: 'logo-manipulation-canvas'
         });
-        const logoContainer = $('<div>', {
-            id: 'logo-manipulation-container',
-            class: 'logo-manipulation-container'
+        const canvasOverlay = $('<div>', {
+            id: 'logo-canvas-overlay',
+            class: 'logo-canvas-overlay'
         });
 
-        const resizeHandle = $('<div>', {
-            class: 'logo-resize-handle',
-            html: '<span class="resize-icon">↔</span>'
-        });
-
-        logoContainer.append(logoCanvas, resizeHandle);
-        logoGeneratorPanel.find('.logo-generator-content').append(logoContainer);
-
-        let isResizing = false;
-        let startX, startWidth;
-
-        resizeHandle.on('mousedown', function(e) {
-            isResizing = true;
-            startX = e.clientX;
-            startWidth = logoCanvas.width();
-            $('body').css('cursor', 'col-resize');
-            
-            $(document).on('mousemove', resizeLogo);
-            $(document).on('mouseup', stopResize);
-        });
-
-        function resizeLogo(e) {
-            if (!isResizing) return;
-            
-            const dx = e.clientX - startX;
-            const newWidth = Math.max(50, Math.min(startWidth + dx, 300));
-            
-            logoCanvas.css('width', `${newWidth}px`);
-            logoCanvas.css('height', `${newWidth}px`);
-        }
-
-        function stopResize() {
-            isResizing = false;
-            $('body').css('cursor', 'default');
-            $(document).off('mousemove', resizeLogo);
-            $(document).off('mouseup', stopResize);
-        }
-
-        // Logo Manipulation Tools
-        const toolsContainer = $('<div>', {
-            class: 'logo-manipulation-tools',
+        // Manipulation controls
+        const manipulationControls = $('<div>', {
+            class: 'logo-manipulation-controls',
             html: `
-                <button class="tool-btn" data-tool="move">Move</button>
-                <button class="tool-btn" data-tool="rotate">Rotate</button>
-                <button class="tool-btn" data-tool="scale">Scale</button>
-                <button class="tool-btn" data-tool="filter">Filter</button>
+                <div class="manipulation-tools">
+                    <button class="tool-btn active" data-tool="move">
+                        <i class="icon-move">↔</i> Move
+                    </button>
+                    <button class="tool-btn" data-tool="rotate">
+                        <i class="icon-rotate">↻</i> Rotate
+                    </button>
+                    <button class="tool-btn" data-tool="scale">
+                        <i class="icon-scale">⤢</i> Scale
+                    </button>
+                    <button class="tool-btn" data-tool="filter">
+                        <i class="icon-filter">✦</i> Filter
+                    </button>
+                </div>
+                <div class="manipulation-settings">
+                    <div class="setting-group" data-tool="move">
+                        <label>X Position: <input type="range" min="-50" max="50" value="0" class="position-x"></label>
+                        <label>Y Position: <input type="range" min="-50" max="50" value="0" class="position-y"></label>
+                    </div>
+                    <div class="setting-group" data-tool="rotate" style="display:none;">
+                        <label>Rotation: <input type="range" min="0" max="360" value="0" class="rotation-angle"></label>
+                    </div>
+                    <div class="setting-group" data-tool="scale" style="display:none;">
+                        <label>Scale: <input type="range" min="50" max="150" value="100" class="scale-percentage"></label>
+                    </div>
+                    <div class="setting-group" data-tool="filter" style="display:none;">
+                        <label>Brightness: <input type="range" min="0" max="200" value="100" class="brightness-filter"></label>
+                        <label>Contrast: <input type="range" min="0" max="200" value="100" class="contrast-filter"></label>
+                        <label>Saturation: <input type="range" min="0" max="200" value="100" class="saturation-filter"></label>
+                    </div>
+                </div>
             `
         });
 
-        logoGeneratorPanel.find('.logo-generator-content').append(toolsContainer);
-
-        // Tool Selection
-        $('.tool-btn').on('click', function() {
-            const tool = $(this).data('tool');
-            // Implement specific tool logic here
-            console.log(`Selected tool: ${tool}`);
-        });
-
-        // Generate Logo with Fixed Size
-        function generateFixedSizeLogo(logoData) {
-            const canvas = document.getElementById('logo-manipulation-canvas');
-            const ctx = canvas.getContext('2d');
-            
-            // Set fixed canvas size
-            canvas.width = 100;
-            canvas.height = 100;
-            
-            // Clear previous content
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Create a new image
-            const img = new Image();
-            img.onload = function() {
-                // Calculate scaling to fit within 100x100
-                const scale = Math.min(
-                    canvas.width / img.width, 
-                    canvas.height / img.height
-                );
-                
-                const scaledWidth = img.width * scale;
-                const scaledHeight = img.height * scale;
-                
-                // Center the image
-                const x = (canvas.width - scaledWidth) / 2;
-                const y = (canvas.height - scaledHeight) / 2;
-                
-                // Draw the scaled and centered image
-                ctx.drawImage(
-                    img, 
-                    x, y, 
-                    scaledWidth, 
-                    scaledHeight
-                );
-            };
-            
-            img.src = logoData;
-            return canvas.toDataURL('image/png');
-        }
-
-        // Existing logo generation code modification
-        $('#nehabi-logo-form').on('submit', function(e) {
-            e.preventDefault();
-
-            const generateBtn = $('#generate-logo-btn');
-            const logoResult = $('#logo-result');
-
-            generateBtn.prop('disabled', true).text('Generating...');
-            logoResult.html('<p>Generating logo... Please wait.</p>');
-
-            const formData = new FormData(this);
-            formData.append('action', 'nehabi_generate_logo');
-            formData.append('security', nehabi_logo_params.logo_nonce);
-
-            $.ajax({
-                url: nehabi_logo_params.ajax_url,
-                type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
-                timeout: 150000,
-                success: function(response) {
-                    generateBtn.prop('disabled', false).text('Generate Logo');
-
-                    if (response.success) {
-                        // Generate fixed-size logo
-                        const fixedSizeLogo = generateFixedSizeLogo(response.data.url);
-
-                        logoResult.html(`
-                            <h3>Generated Logo</h3>
-                            <div class="logo-preview-container">
-                                <canvas id="logo-manipulation-canvas" width="100" height="100"></canvas>
-                                <div class="logo-manipulation-tools">
-                                    <button class="tool-btn" data-tool="move">Move</button>
-                                    <button class="tool-btn" data-tool="rotate">Rotate</button>
-                                    <button class="tool-btn" data-tool="scale">Scale</button>
-                                    <button class="tool-btn" data-tool="filter">Filter</button>
-                                </div>
-                                <div class="logo-actions">
-                                    <a href="${fixedSizeLogo}" download class="button">Download Logo</a>
-                                    <button class="button button-primary save-to-media-btn" 
-                                            data-logo-id="${response.data.id}">
-                                        Save to Media Library
-                                    </button>
-                                </div>
-                            </div>
-                            <p><small>Generated with prompt: ${response.data.prompt}</small></p>
-                        `);
-
-                        // Re-initialize logo manipulation
-                        initLogoManipulation();
-                    } else {
-                        logoResult.html(`
-                            <div class="error">
-                                <p>Logo generation failed: ${response.data}</p>
-                            </div>
-                        `);
-                    }
-                },
-                error: function(xhr, status, error) {
-                    generateBtn.prop('disabled', false).text('Generate Logo');
-                    logoResult.html(`
-                        <div class="error">
-                            <p>An error occurred: ${error}</p>
-                        </div>
-                    `);
-                }
-            });
-        });
-    }
-
-    function initLogoGeneratorPanel() {
-        const logoGeneratorPanel = $('#nehabi-logo-generator-panel');
-
-        // Create collapse button
-        const collapseButton = $('<button>', {
-            class: 'logo-generator-collapse-btn',
-            html: '−',
-            title: 'Collapse Logo Generator'
-        });
-
-        // Add collapse button to the panel header
-        const panelHeader = $('<div>', {
-            class: 'logo-generator-panel-header'
-        }).append(
-            $('<h2>').text('Logo Generator'),
-            collapseButton
+        // Assemble components
+        logoCanvasContainer.append(logoCanvas, canvasOverlay);
+        logoGeneratorPanel.find('.logo-generator-content').append(
+            logoCanvasContainer, 
+            manipulationControls
         );
 
-        // Insert header before existing content
-        logoGeneratorPanel.prepend(panelHeader);
+        // Tool selection logic
+        $('.tool-btn').on('click', function() {
+            // Toggle active state
+            $('.tool-btn').removeClass('active');
+            $(this).addClass('active');
 
-        // Collapse functionality
-        collapseButton.on('click', function() {
-            const panelContent = logoGeneratorPanel.find('.logo-generator-content');
-            const isCollapsed = logoGeneratorPanel.hasClass('collapsed');
+            // Show corresponding settings
+            const tool = $(this).data('tool');
+            $('.setting-group').hide();
+            $(`.setting-group[data-tool="${tool}"]`).show();
+        });
 
-            if (isCollapsed) {
-                // Expand
-                panelContent.show();
-                logoGeneratorPanel.removeClass('collapsed');
-                collapseButton.text('−');
-            } else {
-                // Collapse
-                panelContent.hide();
-                logoGeneratorPanel.addClass('collapsed');
-                collapseButton.text('+');
+        // Canvas interaction
+        let isDragging = false;
+        let startX, startY;
+        let currentTool = 'move';
+
+        logoCanvas.on('mousedown', function(e) {
+            isDragging = true;
+            startX = e.clientX - logoCanvas.offset().left;
+            startY = e.clientY - logoCanvas.offset().top;
+        });
+
+        $(document).on('mousemove', function(e) {
+            if (!isDragging) return;
+
+            const currentX = e.clientX - logoCanvas.offset().left;
+            const currentY = e.clientY - logoCanvas.offset().top;
+
+            switch(currentTool) {
+                case 'move':
+                    // Update position inputs
+                    $('.position-x').val(currentX - startX);
+                    $('.position-y').val(currentY - startY);
+                    break;
+                case 'rotate':
+                    // Calculate rotation angle
+                    const angle = Math.atan2(currentY - startY, currentX - startX) * (180 / Math.PI);
+                    $('.rotation-angle').val(angle);
+                    break;
+                case 'scale':
+                    // Calculate scale based on distance
+                    const distance = Math.sqrt(
+                        Math.pow(currentX - startX, 2) + 
+                        Math.pow(currentY - startY, 2)
+                    );
+                    $('.scale-percentage').val(100 + distance);
+                    break;
             }
+        });
+
+        $(document).on('mouseup', function() {
+            isDragging = false;
+        });
+
+        // Filter and transformation sliders
+        $('.position-x, .position-y').on('input', function() {
+            // Implement canvas translation
+            console.log('Position updated');
+        });
+
+        $('.rotation-angle').on('input', function() {
+            // Implement canvas rotation
+            console.log('Rotation updated');
+        });
+
+        $('.scale-percentage').on('input', function() {
+            // Implement canvas scaling
+            console.log('Scale updated');
+        });
+
+        $('.brightness-filter, .contrast-filter, .saturation-filter').on('input', function() {
+            // Implement image filtering
+            console.log('Filters updated');
+        });
+
+        // Advanced color picker for filters
+        const colorPickerHtml = `
+            <div class="color-overlay-settings">
+                <label>Color Overlay: 
+                    <input type="color" class="color-overlay-picker">
+                </label>
+                <label>Overlay Intensity: 
+                    <input type="range" min="0" max="100" value="50" class="color-overlay-intensity">
+                </label>
+            </div>
+        `;
+        manipulationControls.find('.manipulation-settings').append(colorPickerHtml);
+
+        $('.color-overlay-picker, .color-overlay-intensity').on('input', function() {
+            // Implement color overlay
+            console.log('Color overlay updated');
         });
     }
 
     // Initialize on document ready
-    initLogoGeneratorPanel();
     initLogoManipulation();
 });
