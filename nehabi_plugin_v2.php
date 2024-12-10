@@ -3,7 +3,7 @@
  * Plugin Name: Nehabi AI Assistant
  * Description: An AI-powered chatbot and assistant for WordPress
  * Version: 1.0
- * Author: Nehabi Technologies
+ * Author: Fikir Ashenafi
  */
 
 // Prevent direct access to the plugin
@@ -20,6 +20,8 @@ class NehabhAIAssistant {
         
         // Enqueue scripts and styles
         add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_assets']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_logo_generator_assets']);
         
         // Add admin menu
         add_action('admin_menu', [$this, 'add_admin_menu']);
@@ -27,20 +29,15 @@ class NehabhAIAssistant {
         // Register settings
         add_action('admin_init', [$this, 'register_settings']);
         
-        // Register AJAX actions
-        add_action('wp_ajax_nehabi_chat_request', [$this, 'handle_ai_chat_request']);
-        add_action('wp_ajax_nopriv_nehabi_chat_request', [$this, 'handle_ai_chat_request']);
-        
-        // Add AJAX action for logo generation
-        add_action('wp_ajax_nehabi_generate_logo', [$this, 'handle_logo_generation_request']);
-        add_action('wp_ajax_nopriv_nehabi_generate_logo', [$this, 'handle_logo_generation_request']);
-
         // Logo-related hooks
         add_action('init', [$this, 'register_logo_post_type']);
         add_action('add_meta_boxes', [$this, 'add_logo_meta_boxes']);
         add_action('save_post', [$this, 'save_logo_details_meta_box']);
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_logo_assets']);
         
+        // Admin AJAX actions for logo generation
+        add_action('wp_ajax_nehabi_generate_logo', [$this, 'handle_logo_generation_request']);
+        add_action('wp_ajax_nopriv_nehabi_generate_logo', [$this, 'handle_logo_generation_request']);
+
         // Shortcode
         add_shortcode('nehabi_logos', [$this, 'nehabi_logos_shortcode']);
     }
@@ -48,538 +45,629 @@ class NehabhAIAssistant {
     public function init() {
         // Load plugin text domain for internationalization
         load_plugin_textdomain('nehabi-ai-assistant', false, dirname(plugin_basename(__FILE__)) . '/languages/');
+        
+        // Frontend chatbot AJAX action
+        add_action('wp_ajax_nehabi_frontend_chat', [$this, 'handle_frontend_ai_chat_request']);
+        add_action('wp_ajax_nopriv_nehabi_frontend_chat', [$this, 'handle_frontend_ai_chat_request']);
+
+        // Enqueue frontend assets
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_assets']);
+
+        // Register frontend chatbot shortcode
+        add_shortcode('nehabi_chatbot', [$this, 'nehabi_frontend_chatbot_shortcode']);
+
+        // Add chatbot to footer for frontend pages
+        add_action('wp_footer', [$this, 'render_frontend_chatbot']);
     }
 
     public function enqueue_frontend_assets() {
-        // Only enqueue logo generation for admin users
-        if (is_user_logged_in() && current_user_can('manage_options')) {
-            // Enqueue styles
+        // Minimal frontend assets, can be empty if no frontend functionality is needed
+        wp_enqueue_style(
+            'nehabi-plugin-style', 
+            plugin_dir_url(__FILE__) . 'css/logo-generator.css', 
+            [], 
+            '1.0', 
+            'all'
+        );
+        
+        // Only enqueue chatbot assets if it should be displayed
+        if ($this->should_display_chatbot()) {
+            // Enqueue logo generator styles
             wp_enqueue_style(
-                'nehabi-logo-generator-style', 
-                plugin_dir_url(__FILE__) . 'css/logo-generator.css', 
+                'nehabi-logo-generator-styles', 
+                plugin_dir_url(__FILE__) . 'assets/css/frontend-logo-generator.css', 
                 [], 
-                '1.0', 
-                'all'
+                '1.0.0'
             );
 
-            // Enqueue logo generation script
-            wp_enqueue_script(
-                'nehabi-logo-generator-script', 
-                plugin_dir_url(__FILE__) . 'assets/js/logo-generator.js', 
+            // Enqueue chatbot frontend assets
+            wp_enqueue_script('nehabi-chatbot-frontend', 
+                plugin_dir_url(__FILE__) . 'assets/js/frontend-chatbot.js', 
                 ['jquery'], 
                 '1.0', 
                 true
             );
 
-            // Localize script with logo generation parameters
-            wp_localize_script('nehabi-logo-generator-script', 'nehabi_logo_params', [
+            wp_enqueue_style('nehabi-chatbot-frontend', 
+                plugin_dir_url(__FILE__) . 'assets/css/frontend-chatbot.css'
+            );
+
+            // Localize script with necessary data
+            wp_localize_script('nehabi-chatbot-frontend', 'nehabi_chatbot_frontend', [
                 'ajax_url' => admin_url('admin-ajax.php'),
-                'logo_nonce' => wp_create_nonce('nehabi_logo_generation_nonce')
+                'nonce' => wp_create_nonce('nehabi_frontend_chat_nonce')
             ]);
         }
-
-        // Enqueue styles
-        wp_enqueue_style(
-            'nehabi-chatbot-style', 
-            plugin_dir_url(__FILE__) . 'css/chatbot.css', 
-            [], 
-            '1.0', 
-            'all'
-        );
-
-        // Enqueue scripts
+        
+        // Enqueue logo generation scripts
         wp_enqueue_script(
-            'nehabi-chatbot-script', 
-            plugin_dir_url(__FILE__) . 'assets/js/chatbot.js', 
+            'nehabi-logos-script', 
+            plugin_dir_url(__FILE__) . 'assets/js/logos.js', 
             ['jquery'], 
             '1.0', 
             true
         );
 
-        // Localize script with ajax url and nonces
-        wp_localize_script('nehabi-chatbot-script', 'nehabi_chat_params', [
+        // Pass admin-ajax.php URL and nonce to frontend script
+        wp_localize_script('nehabi-logos-script', 'nehabi_admin_params', [
             'ajax_url' => admin_url('admin-ajax.php'),
-            'chat_nonce' => wp_create_nonce('nehabi_chat_nonce'),
-            'logo_nonce' => wp_create_nonce('nehabi_logo_generation_nonce')
+            // Create a nonce with a specific action
+            'logo_nonce' => wp_create_nonce('nehabi_logo_generation_action')
         ]);
     }
 
-    public function add_admin_menu() {
-        add_menu_page(
-            'Nehabi AI Assistant', 
-            'AI Assistant', 
-            'manage_options', 
-            'nehabi-ai-assistant', 
-            [$this, 'render_admin_page'], 
-            'dashicons-format-chat', 
-            99
-        );
-    }
-
-    public function register_settings() {
-        // Register a new setting for the Hugging Face API key
-        register_setting(
-            'nehabi_ai_settings_group', // Option group
-            'nehabi_huggingface_api_key', // Option name
-            [
-                'type' => 'string',
-                'sanitize_callback' => 'sanitize_text_field',
-                'default' => '',
-            ]
-        );
-
-        // Add settings section
-        add_settings_section(
-            'nehabi_ai_settings_section', // ID
-            'AI Assistant Settings', // Title
-            [$this, 'settings_section_callback'], // Callback
-            'nehabi-ai-assistant' // Page slug
-        );
-
-        // Add settings field for API key
-        add_settings_field(
-            'nehabi_huggingface_api_key', // ID
-            'Hugging Face API Key', // Title 
-            [$this, 'huggingface_api_key_callback'], // Callback
-            'nehabi-ai-assistant', // Page slug
-            'nehabi_ai_settings_section' // Section ID
-        );
-
-        // Add new setting for logo generation
-        register_setting(
-            'nehabi_ai_settings_group', 
-            'nehabi_logo_generation_enabled', 
-            [
-                'type' => 'boolean',
-                'sanitize_callback' => 'rest_sanitize_boolean',
-                'default' => true,
-            ]
-        );
-
-        // Add settings section for logo generation
-        add_settings_section(
-            'nehabi_logo_settings_section', 
-            'Logo Generation Settings', 
-            [$this, 'logo_settings_section_callback'], 
-            'nehabi-ai-assistant'
-        );
-
-        // Add settings field for logo generation toggle
-        add_settings_field(
-            'nehabi_logo_generation_enabled', 
-            'Enable Logo Generation', 
-            [$this, 'logo_generation_toggle_callback'], 
-            'nehabi-ai-assistant', 
-            'nehabi_logo_settings_section'
-        );
-    }
-
-    public function settings_section_callback() {
-        echo '<p>Enter your Hugging Face API key to enable the AI Assistant.</p>';
-    }
-
-    public function huggingface_api_key_callback() {
-        $api_key = get_option('nehabi_huggingface_api_key', '');
-        ?>
-        <input 
-            type="password" 
-            name="nehabi_huggingface_api_key" 
-            id="nehabi_huggingface_api_key" 
-            value="<?php echo esc_attr($api_key); ?>" 
-            class="regular-text"
-            placeholder="Enter your Hugging Face API key"
-        />
-        <p class="description">
-            You can obtain an API key from 
-            <a href="https://huggingface.co/settings/tokens" target="_blank">Hugging Face</a>
-        </p>
-        <?php
-    }
-
-    // Callback for logo generation settings section
-    public function logo_settings_section_callback() {
-        echo '<p>Control the logo generation feature for site development.</p>';
-    }
-
-    // Callback for logo generation toggle
-    public function logo_generation_toggle_callback() {
-        $logo_gen_enabled = get_option('nehabi_logo_generation_enabled', true);
-        ?>
-        <label>
-            <input 
-                type="checkbox" 
-                name="nehabi_logo_generation_enabled" 
-                value="1" 
-                <?php checked(1, $logo_gen_enabled, true); ?> 
-            />
-            Enable logo generation tool for site development
-        </label>
-        <p class="description">
-            When enabled, the logo generation tool will be available in the admin area.
-            Disable this for the live site.
-        </p>
-        <?php
-    }
-
-    public function render_admin_page() {
-        // Check user capabilities
-        if (!current_user_can('manage_options')) {
+    public function enqueue_admin_assets($hook) {
+        // Only enqueue on our plugin pages
+        if (strpos($hook, 'nehabi_ai_assistant') === false) {
             return;
         }
 
-        // Admin page HTML
+        // Enqueue color picker
+        wp_enqueue_style('wp-color-picker');
+        wp_enqueue_script('wp-color-picker');
+
+        // Enqueue logo generator admin script
+        wp_enqueue_script(
+            'nehabi-logo-generator-admin', 
+            plugin_dir_url(__FILE__) . 'assets/js/logo-generator-admin.js', 
+            ['jquery'], 
+            '1.0', 
+            true
+        );
+
+        // Localize script with necessary data
+        wp_localize_script('nehabi-logo-generator-admin', 'nehabi_logo_gen', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('nehabi_logo_generation_nonce'),
+            // Retrieve Hugging Face API key from options
+            'hugging_face_api_key' => get_option('nehabi_huggingface_api_key', ''),
+        ]);
+    }
+
+    public function enqueue_logo_generator_assets($hook) {
+        // Check if the current page is the logo generator page
+        if ($hook === 'toplevel_page_nehabi-logo-generator') {
+            // Enqueue logo generator specific scripts and styles
+            wp_enqueue_script('logo-generator-admin', plugin_dir_url(__FILE__) . 'assets/js/logo-generator-admin.js', array('jquery'), '1.0', true);
+            wp_enqueue_style('logo-generator-admin', plugin_dir_url(__FILE__) . 'assets/css/logo-generator-admin.css');
+            
+            // Optional: Localize script with any necessary data
+            wp_localize_script('logo-generator-admin', 'logoGeneratorData', array(
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('nehabi_logo_generator_nonce')
+            ));
+        }
+    }
+
+    public function add_admin_menu() {
+        // Remove any existing menu registration
+        remove_action('admin_menu', array($this, 'nehabi_logo_gen_menu'));
+        
+        // Add the menu item within the class method
+        add_action('admin_menu', function() {
+            // Remove any existing menu with the same slug to prevent duplicates
+            global $submenu, $menu;
+            
+            // Check and remove existing menu entries
+            if (isset($submenu['nehabi-logo-generator'])) {
+                unset($submenu['nehabi-logo-generator']);
+            }
+            
+            foreach ($menu as $key => $menu_item) {
+                if (isset($menu_item[2]) && $menu_item[2] === 'nehabi-logo-generator') {
+                    unset($menu[$key]);
+                }
+            }
+
+            // Add the menu item
+            add_menu_page(
+                'AI Logo Generator', 
+                'AI Logo Generator', 
+                'manage_options', 
+                'nehabi-logo-generator', 
+                array($this, 'render_logo_generator_page'), 
+                'dashicons-art', 
+                99
+            );
+        }, 999);
+    }
+
+    public function render_logo_generator_page() {
+        // Prevent multiple renderings
+        static $rendered = false;
+        if ($rendered) {
+            return;
+        }
+        $rendered = true;
+
         ?>
-        <div class="wrap">
-            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
-            <form action="options.php" method="post">
-                <?php
-                // Output security fields
-                settings_fields('nehabi_ai_settings_group');
-                // Output setting sections
-                do_settings_sections('nehabi-ai-assistant');
-                // Submit button
-                submit_button('Save Settings');
-                ?>
+        <div class="wrap nehabi-logo-generator" id="nehabi-logo-generator-debug">
+            <div id="nehabi-logo-generator-error-container" style="display:none; background-color: #ffdddd; padding: 10px; margin-bottom: 15px; border: 1px solid red;">
+                <strong>Error:</strong> 
+                <p id="nehabi-logo-generator-error-message"></p>
+            </div>
+
+            <h1>AI Logo Generator</h1>
+            
+            <form id="logo-generator-form" class="logo-generator-form">
+                <div class="form-group">
+                    <label for="company-name">Company Name</label>
+                    <input type="text" id="company-name" placeholder="Enter Company Name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="industry-select">Industry</label>
+                    <select id="industry-select" required>
+                        <option value="">Select Industry</option>
+                        <option value="technology">Technology - Software, Hardware, IT</option>
+                        <option value="food-beverage">Food & Beverage - Restaurants, Cafes, Food Trucks</option>
+                        <option value="agriculture">Agriculture - Farming, Livestock, Produce</option>
+                        <option value="finance">Finance - Banking, Accounting, Investments</option>
+                        <option value="healthcare">Healthcare - Medical, Dental, Wellness</option>
+                        <option value="education">Education - Schools, Universities, Online Courses</option>
+                        <option value="retail">Retail - E-commerce, Brick and Mortar, Wholesale</option>
+                        <option value="construction">Construction - Building, Architecture, Engineering</option>
+                        <option value="entertainment">Entertainment - Music, Film, Theater</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="logo-style">Logo Style</label>
+                    <select id="logo-style" required>
+                        <option value="">Select Style</option>
+                        <option value="minimalist">Minimalist - Simple, Clean, Modern</option>
+                        <option value="vintage">Vintage - Classic, Retro, Distressed</option>
+                        <option value="modern">Modern - Sleek, Contemporary, Abstract</option>
+                        <option value="playful">Playful - Fun, Whimsical, Colorful</option>
+                        <option value="elegant">Elegant - Sophisticated, Luxurious, Refined</option>
+                        <option value="geometric">Geometric - Shapes, Patterns, Symmetry</option>
+                        <option value="handcrafted">Handcrafted - Artisanal, Hand-drawn, Unique</option>
+                        <option value="corporate">Corporate - Professional, Formal, Conservative</option>
+                    </select>
+                </div>
+                
+                <div class="form-group color-picker-group">
+                    <label for="logo-color-picker">Primary Color</label>
+                    <input type="color" id="logo-color-picker" value="#4A90E2">
+                </div>
+                
+                <div class="form-group color-picker-group">
+                    <label for="secondary-color-picker">Secondary Color</label>
+                    <input type="color" id="secondary-color-picker" value="#FF6B6B">
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="button button-primary">Generate Logo</button>
+                </div>
+                
+                <div id="logo-generation-status" class="form-group"></div>
+                
+                <div id="generated-logo" class="form-group"></div>
+                
+                <div id="logo-controls" class="form-group" style="display:none;">
+                    <div class="logo-control-group">
+                        <label for="logo-resize">Resize Logo</label>
+                        <input type="range" id="logo-resize" min="100" max="500" value="300">
+                    </div>
+                    <button type="button" id="use-logo-btn" class="button">Save Logo to Media Library</button>
+                </div>
             </form>
         </div>
+        <script>
+        // Add global error handling
+        window.addEventListener('error', function(event) {
+            console.error('Unhandled error:', event.error);
+            var errorContainer = document.getElementById('nehabi-logo-generator-error-container');
+            var errorMessage = document.getElementById('nehabi-logo-generator-error-message');
+            if (errorContainer && errorMessage) {
+                errorMessage.textContent = event.error ? event.error.message : 'An unknown error occurred';
+                errorContainer.style.display = 'block';
+            }
+        });
+
+        // Diagnostic logging
+        console.log('Logo Generator Page Loaded');
+        console.log('Current Page URL:', window.location.href);
+        console.log('Plugin Directory URL:', <?php echo json_encode(plugin_dir_url(__FILE__)); ?>);
+
+        // Remove any duplicate logo generator initializations
+        if (window.logoGenerator) {
+            console.warn('Removing duplicate logo generator initialization');
+            window.logoGenerator = null;
+        }
+        </script>
+        <style>
+            /* Ensure the page is always visible */
+            #nehabi-logo-generator-debug {
+                min-height: 500px;
+                background-color: #f9f9f9;
+                padding: 20px;
+                border: 1px solid #ddd;
+            }
+        </style>
         <?php
     }
 
-    public function handle_ai_chat_request() {
-        // Verify nonce for security
-        check_ajax_referer('nehabi_chat_nonce', 'security');
+    /**
+     * Generate a logo based on input parameters
+     * 
+     * @param array $args Logo generation arguments
+     * @return array|WP_Error Generated logo details
+     */
+    private function generate_logo($args) {
+        // Validate input arguments
+        $validated_args = $this->validate_logo_args($args);
+        if (is_wp_error($validated_args)) {
+            return $validated_args;
+        }
 
-        // Sanitize and validate input
-        $message = isset($_POST['message']) ? sanitize_text_field($_POST['message']) : '';
+        // Construct prompt
+        $prompt = $this->construct_logo_prompt($validated_args);
+
+        // Call Hugging Face API
+        $api_response = $this->call_huggingface_api($prompt);
         
-        if (empty($message)) {
-            wp_send_json_error('Empty message');
+        if (is_wp_error($api_response)) {
+            return $api_response;
         }
 
-        // Get site context
-        $site_context = $this->get_site_context();
-
-        // Prepare API request to Hugging Face
-        $api_key = get_option('nehabi_huggingface_api_key');
-        if (empty($api_key)) {
-            wp_send_json_error('API key not configured');
-        }
-
-        $response = $this->call_huggingface_api($message, $site_context, $api_key);
-
-        if (is_wp_error($response)) {
-            wp_send_json_error($response->get_error_message());
-        }
-
-        wp_send_json_success($response);
-    }
-
-    private function get_site_context() {
-        // Gather comprehensive contextual information about the website
-        $context = [
-            'site_info' => [
-                'name' => get_bloginfo('name'),
-                'description' => get_bloginfo('description'),
-                'url' => get_home_url(),
-                'language' => get_bloginfo('language')
-            ],
-            'current_page' => [
-                'title' => wp_title('', false),
-                'url' => get_permalink(),
-                'type' => get_post_type()
-            ],
-            'recent_content' => $this->gather_recent_content()
-        ];
-
-        return json_encode($context);
-    }
-
-    private function gather_recent_content($limit = 3) {
-        $recent_posts = wp_get_recent_posts([
-            'numberposts' => $limit,
-            'post_status' => 'publish'
-        ]);
-
-        $content_snippets = [];
-        foreach ($recent_posts as $post) {
-            $content_snippets[] = [
-                'title' => $post['post_title'],
-                'excerpt' => wp_trim_excerpt('', $post['ID']),
-                'url' => get_permalink($post['ID'])
-            ];
-        }
-
-        return $content_snippets;
-    }
-
-    private function call_huggingface_api($message, $context, $api_key) {
-        $url = 'https://api-inference.huggingface.co/models/Qwen/QwQ-32B-Preview';
+        // Process and save logo
+        $logo_details = $this->process_logo_image($api_response, $validated_args);
         
-        // Prepare augmented prompt with site context and response guidelines
-        $augmented_prompt = "Site Context: {$context}\n\n" .
-                            "User Query: {$message}\n\n" .
-                            "Response Guidelines:\n" .
-                            "- Respond in first person (I, my, we)\n" .
-                            "- Use contractions (I'm, we're, it's)\n" .
-                            "- Keep responses conversational and friendly\n" .
-                            "- Limit response to 2-3 sentences\n" .
-                            "- Speak as if you represent the website\n" .
-                            "- If greeting, offer help related to the site\n\n" .
-                            "Generate Response:";
-
-        $body = [
-            'inputs' => $augmented_prompt,
-            'parameters' => [
-                'max_new_tokens' => 100,  // Reduced to encourage brevity
-                'temperature' => 0.7,
-                'return_full_text' => false
-            ]
-        ];
-
-        $args = [
-            'body' => wp_json_encode($body),
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Authorization' => "Bearer {$api_key}"
-            ],
-            'timeout' => 30
-        ];
-
-        // Log the request details for debugging
-        error_log('Nehabi AI RAG Request Body: ' . wp_json_encode($body));
-
-        $response = wp_remote_post($url, $args);
-
-        if (is_wp_error($response)) {
-            error_log('Nehabi AI WP Error: ' . $response->get_error_message());
-            return "Hi there! I'm having a bit of trouble right now, but I'm here to help when I can.";
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        // More robust error handling
-        if (empty($data) || !isset($data[0]['generated_text'])) {
-            error_log('Nehabi AI Invalid Response: ' . $body);
-            return "Hey! I'm ready to assist you with any questions about our site.";
-        }
-
-        return trim($data[0]['generated_text']);
+        return $logo_details;
     }
 
-    // Add logo generation method
-    public function handle_logo_generation_request() {
-        // Check if logo generation is enabled
-        $logo_gen_enabled = get_option('nehabi_logo_generation_enabled', true);
-        if (!$logo_gen_enabled) {
-            wp_send_json_error('Logo generation is disabled');
-            wp_die();
-        }
+    /**
+     * Validate logo generation arguments
+     * 
+     * @param array $args Input arguments
+     * @return array|WP_Error Validated arguments
+     */
+    private function validate_logo_args($args) {
+        $defaults = [
+            'company_name' => '',
+            'industry' => '',
+            'style' => 'modern',
+            'primary_color' => '#000000',
+            'secondary_color' => '#FFFFFF'
+        ];
 
-        // Verify nonce with a specific logo generation nonce
-        if (!check_ajax_referer('nehabi_logo_generation_nonce', 'security', false)) {
-            error_log('Logo Generation Nonce Verification Failed');
-            wp_send_json_error('Security check failed');
-            wp_die();
-        }
+        $args = wp_parse_args($args, $defaults);
 
-        // Check user permissions for non-logged-in users
-        if (!is_user_logged_in() && !apply_filters('nehabi_allow_logo_generation_for_guests', false)) {
-            wp_send_json_error('User not authorized');
-            wp_die();
-        }
-
-        // Sanitize and validate inputs
-        $company_name = isset($_POST['company_name']) ? sanitize_text_field($_POST['company_name']) : '';
-        $industry = isset($_POST['industry']) ? sanitize_text_field($_POST['industry']) : '';
-        $style = isset($_POST['style']) ? sanitize_text_field($_POST['style']) : '';
-        $color_scheme = isset($_POST['color_scheme']) ? sanitize_text_field($_POST['color_scheme']) : '';
-        $primary_color = isset($_POST['primary_color']) ? sanitize_text_field($_POST['primary_color']) : '';
-        $secondary_color = isset($_POST['secondary_color']) ? sanitize_text_field($_POST['secondary_color']) : '';
+        // Sanitize inputs
+        $sanitized_args = [
+            'company_name' => sanitize_text_field($args['company_name']),
+            'industry' => sanitize_text_field($args['industry']),
+            'style' => sanitize_text_field($args['style']),
+            'primary_color' => sanitize_hex_color($args['primary_color']),
+            'secondary_color' => sanitize_hex_color($args['secondary_color'])
+        ];
 
         // Validate required fields
-        if (empty($company_name) || empty($industry) || empty($style)) {
-            wp_send_json_error('Missing required logo generation parameters');
-            wp_die();
+        $errors = [];
+        if (empty($sanitized_args['company_name'])) {
+            $errors[] = 'Company name is required';
+        }
+        if (empty($sanitized_args['industry'])) {
+            $errors[] = 'Industry is required';
         }
 
-        // Get Hugging Face API key
-        $api_key = get_option('nehabi_huggingface_api_key');
-        if (empty($api_key)) {
-            wp_send_json_error('API key not configured');
-            wp_die();
+        if (!empty($errors)) {
+            return new WP_Error('logo_validation_error', 'Invalid logo generation parameters', [
+                'errors' => $errors,
+                'input' => $sanitized_args
+            ]);
         }
 
-        // Generate logo prompt
-        $logo_prompt = $this->generate_logo_prompt(
-            $company_name, 
-            $industry, 
-            $style, 
-            $color_scheme, 
-            $primary_color, 
-            $secondary_color
-        );
-
-        // Call Hugging Face API for logo generation
-        $response = $this->call_logo_generation_api($logo_prompt, $api_key);
-
-        if (is_wp_error($response)) {
-            wp_send_json_error($response->get_error_message());
-            wp_die();
-        }
-
-        wp_send_json_success($response);
+        return $sanitized_args;
     }
 
-    private function generate_logo_prompt($company_name, $industry, $style, $color_scheme, $primary_color, $secondary_color) {
-        // Construct a detailed prompt for logo generation
-        $prompt = "Generate a professional logo for a {$industry} company named '{$company_name}'. ";
-        
-        // Add style specifics
-        switch ($style) {
-            case 'modern':
-                $prompt .= "Create a sleek, minimalist design with clean lines and contemporary typography. ";
-                break;
-            case 'classic':
-                $prompt .= "Design an elegant, timeless logo with traditional design elements. ";
-                break;
-            case 'tech':
-                $prompt .= "Develop a futuristic, innovative logo with geometric shapes and sharp edges. ";
-                break;
-            case 'minimalist':
-                $prompt .= "Craft a simple, understated logo with maximum white space and minimal elements. ";
-                break;
-            case 'playful':
-                $prompt .= "Create a fun, energetic logo with playful typography and creative iconography. ";
-                break;
-        }
-
-        // Add color scheme
-        if ($color_scheme === 'custom') {
-            $prompt .= "Use primary color {$primary_color} and secondary color {$secondary_color}. ";
-        } else {
-            switch ($color_scheme) {
-                case 'blue_white':
-                    $prompt .= "Use a color palette of blue and white. ";
-                    break;
-                case 'black_gold':
-                    $prompt .= "Incorporate black and gold colors for a luxurious feel. ";
-                    break;
-                case 'green_gray':
-                    $prompt .= "Utilize green and gray tones for a professional look. ";
-                    break;
-                case 'red_black':
-                    $prompt .= "Design with a bold red and black color scheme. ";
-                    break;
-            }
-        }
-
-        $prompt .= "Ensure the logo is versatile, scalable, and represents the company's core values.";
-
-        return $prompt;
-    }
-
-    private function call_logo_generation_api($prompt, $api_key) {
-        $url = 'https://api-inference.huggingface.co/models/Shakker-Labs/FLUX.1-dev-LoRA-Logo-Design';
-        
-        $body = [
-            'inputs' => $prompt
+    /**
+     * Construct a detailed logo generation prompt
+     * 
+     * @param array $args Validated logo arguments
+     * @return string Generated prompt
+     */
+    private function construct_logo_prompt($args) {
+        $prompt_parts = [
+            "A {$args['style']} logo for a {$args['industry']} company",
+            "Company name: {$args['company_name']}",
+            "Primary color: {$args['primary_color']}",
+            "Secondary color: {$args['secondary_color']}",
+            "High-quality, professional design, vector style, clean lines"
         ];
 
-        // Increase timeout and add more robust error handling
+        return implode(', ', $prompt_parts);
+    }
+
+    /**
+     * Call Hugging Face API for logo generation
+     * 
+     * @param string $prompt Logo generation prompt
+     * @return array|WP_Error API response or error
+     */
+    private function call_huggingface_api($prompt) {
+        // Retrieve Hugging Face API key
+        $api_key = get_option('nehabi_huggingface_api_key', '');
+
+        // Validate API key
+        if (empty($api_key)) {
+            error_log('NEHABI LOGO GEN: API Key is missing or empty');
+            return new WP_Error('api_key_missing', 'Hugging Face API key is not configured', [
+                'debug_info' => [
+                    'api_key_option_exists' => get_option('nehabi_huggingface_api_key') !== false,
+                    'current_user' => wp_get_current_user()->user_login
+                ]
+            ]);
+        }
+
+        $api_base_url = 'https://api-inference.huggingface.co/models/artificialguybr/LogoRedmond-LogoLoraForSDXL-V2';
+
+        // Detailed logging for debugging
+        error_log('NEHABI LOGO GEN: Attempting API Call');
+        error_log('NEHABI LOGO GEN: Prompt - ' . $prompt);
+        error_log('NEHABI LOGO GEN: API URL - ' . $api_base_url);
+
         $args = [
             'method' => 'POST',
-            'timeout' => 120,  // Increased to 2 minutes
-            'redirection' => 5,
-            'httpversion' => '1.1',
-            'blocking' => true,
+            'timeout' => 120, // Increased timeout for image generation
             'headers' => [
-                'Authorization' => "Bearer {$api_key}",
+                'Authorization' => 'Bearer ' . $api_key,
                 'Content-Type' => 'application/json',
-                'Accept' => 'image/png'
+                'Accept' => 'application/json'
             ],
-            'body' => wp_json_encode($body),
-            'sslverify' => false  // Disable SSL verification if needed
+            'body' => wp_json_encode([
+                'inputs' => $prompt,
+                'parameters' => [
+                    'width' => 512,
+                    'height' => 512,
+                    'num_inference_steps' => 50,
+                    'guidance_scale' => 7.5
+                ]
+            ]),
+            // Disable SSL verification for local development if needed
+            'sslverify' => !(defined('WP_DEBUG') && WP_DEBUG === true)
         ];
 
-        // Log request details for debugging
-        error_log('Logo Generation API Request: ' . wp_json_encode($args));
+        // Log request details (be careful not to log sensitive information)
+        error_log('NEHABI LOGO GEN: Request Headers - ' . json_encode(array_map(function($v) {
+            return $v === $api_key ? '***REDACTED***' : $v;
+        }, $args['headers'])));
 
-        // Use wp_remote_post to make the request
-        $response = wp_remote_post($url, $args);
+        // Make the API request
+        $response = wp_remote_post($api_base_url, $args);
+
+        // Log raw response for debugging
+        error_log('NEHABI LOGO GEN: Raw Response Type: ' . gettype($response));
 
         // Check for WP HTTP API errors
         if (is_wp_error($response)) {
             $error_message = $response->get_error_message();
-            error_log('Logo Generation API WP Error: ' . $error_message);
-            
-            // Specific error handling
-            if (strpos($error_message, 'timed out') !== false) {
-                return new WP_Error('logo_generation_timeout', 'Logo generation request timed out. Please try again.');
-            }
-            
-            return $response;
+            error_log('NEHABI LOGO GEN: WP HTTP API Error - ' . $error_message);
+            return new WP_Error('api_request_failed', 'Failed to connect to Hugging Face API', [
+                'error' => $error_message,
+                'error_data' => $response->get_error_data()
+            ]);
         }
 
-        // Get response details
+        // Check response code
         $response_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $content_type = wp_remote_retrieve_header($response, 'content-type');
+        $response_body = wp_remote_retrieve_body($response);
 
-        // Log response details
-        error_log('Logo Generation API Response Code: ' . $response_code);
-        error_log('Logo Generation API Content Type: ' . $content_type);
+        // Log detailed response information
+        error_log('NEHABI LOGO GEN: Response Code - ' . $response_code);
+        error_log('NEHABI LOGO GEN: Response Body (first 500 chars) - ' . substr($response_body, 0, 500));
 
-        // Check response code and content type
-        if ($response_code !== 200) {
-            error_log('Logo Generation API Unexpected Response: ' . $body);
-            return new WP_Error('logo_generation_error', 'Unexpected API response (Code: ' . $response_code . '): ' . $body);
+        // Handle specific HTTP status codes
+        switch ($response_code) {
+            case 200:
+                // Successful response
+                break;
+            case 401:
+                error_log('NEHABI LOGO GEN: Unauthorized - Check API Key');
+                return new WP_Error('api_unauthorized', 'Hugging Face API authentication failed', [
+                    'status_code' => $response_code,
+                    'response_body' => $response_body
+                ]);
+            case 403:
+                error_log('NEHABI LOGO GEN: Forbidden - Permission Denied');
+                return new WP_Error('api_forbidden', 'Access to Hugging Face API is forbidden', [
+                    'status_code' => $response_code,
+                    'response_body' => $response_body,
+                    'api_key_length' => strlen($api_key),
+                    'api_key_starts_with' => substr($api_key, 0, 5) . '...'
+                ]);
+            case 429:
+                error_log('NEHABI LOGO GEN: Rate Limited');
+                return new WP_Error('api_rate_limited', 'Hugging Face API rate limit exceeded', [
+                    'status_code' => $response_code,
+                    'response_body' => $response_body
+                ]);
+            case 500:
+            case 502:
+            case 503:
+                error_log('NEHABI LOGO GEN: Server Error');
+                return new WP_Error('api_server_error', 'Hugging Face API server error', [
+                    'status_code' => $response_code,
+                    'response_body' => $response_body
+                ]);
+            default:
+                error_log('NEHABI LOGO GEN: Unexpected Response Code');
+                return new WP_Error('api_unexpected_response', 'Unexpected response from Hugging Face API', [
+                    'status_code' => $response_code,
+                    'response_body' => $response_body
+                ]);
         }
 
-        // Verify response is an image
-        if (strpos($content_type, 'image/') !== 0) {
-            error_log('Logo Generation API Non-Image Response: ' . $content_type);
-            return new WP_Error('logo_generation_error', 'Received non-image response. Content-Type: ' . $content_type);
+        // Parse response body
+        $image_data = json_decode($response_body, true);
+
+        // Validate image data
+        if (empty($image_data)) {
+            error_log('NEHABI LOGO GEN: Empty Response Data');
+            return new WP_Error('image_generation_failed', 'No data received from Hugging Face API', [
+                'response_body' => $response_body
+            ]);
         }
 
+        // Check for error in API response
+        if (isset($image_data['error'])) {
+            error_log('NEHABI LOGO GEN: API Error Response');
+            return new WP_Error('api_error', $image_data['error'], [
+                'full_error_details' => $image_data
+            ]);
+        }
+
+        // Validate generated image
+        if (!isset($image_data[0]['generated_image'])) {
+            error_log('NEHABI LOGO GEN: No Generated Image Found');
+            return new WP_Error('image_generation_failed', 'No image was generated', [
+                'response_data' => $image_data
+            ]);
+        }
+
+        error_log('NEHABI LOGO GEN: Image Generation Successful');
+        return $image_data[0]['generated_image'];
+    }
+
+    /**
+     * Process and save generated logo image
+     * 
+     * @param string $image_base64 Base64 encoded image
+     * @param array $args Logo generation arguments
+     * @return array Logo details
+     */
+    private function process_logo_image($image_base64, $args) {
+        // Decode base64 image
+        $image_binary = base64_decode($image_base64);
+        
         // Generate unique filename
         $upload_dir = wp_upload_dir();
-        $filename = 'logo_' . uniqid() . '.png';
+        $filename = sanitize_file_name(
+            'logo_' . 
+            $args['company_name'] . '_' . 
+            $args['industry'] . '_' . 
+            current_time('timestamp') . 
+            '.png'
+        );
         $file_path = $upload_dir['path'] . '/' . $filename;
 
-        // Save file to WordPress uploads
-        $file_saved = file_put_contents($file_path, $body);
-        if (!$file_saved) {
-            error_log('Failed to save logo image');
-            return new WP_Error('logo_generation_error', 'Failed to save logo image');
-        }
+        // Save image file
+        file_put_contents($file_path, $image_binary);
 
-        // Prepare attachment data
+        // Create WordPress attachment
         $attachment = [
-            'guid'           => $upload_dir['url'] . '/' . $filename,
+            'guid' => $upload_dir['url'] . '/' . $filename,
             'post_mime_type' => 'image/png',
-            'post_title'     => sanitize_title('Logo for ' . $_POST['company_name']),
-            'post_content'   => $prompt,  // Store generation prompt as content
-            'post_status'    => 'inherit'
+            'post_title' => sprintf('Logo for %s - %s', $args['company_name'], $args['industry']),
+            'post_content' => '',
+            'post_status' => 'inherit'
         ];
-
-        // Insert attachment to media library
-        $attach_id = wp_insert_attachment($attachment, $file_path);
+        $attachment_id = wp_insert_attachment($attachment, $file_path);
 
         // Generate attachment metadata
-        require_once(ABSPATH . 'wp-admin/includes/image.php');
-        $attach_data = wp_generate_attachment_metadata($attach_id, $file_path);
-        wp_update_attachment_metadata($attach_id, $attach_data);
+        $attachment_data = wp_generate_attachment_metadata($attachment_id, $file_path);
+        wp_update_attachment_metadata($attachment_id, $attachment_data);
 
-        // Return attachment URL for frontend
         return [
-            'url' => wp_get_attachment_url($attach_id),
-            'id' => $attach_id,
-            'prompt' => $prompt
+            'id' => $attachment_id,
+            'url' => wp_get_attachment_url($attachment_id),
+            'path' => $file_path,
+            'generation_details' => $args
         ];
     }
 
-    // Add logo post type
+    // AJAX Handler for Logo Generation
+    public function handle_logo_generation_request() {
+        // Extensive logging and debugging
+        error_log('NEHABI LOGO GEN AJAX: Request Received');
+        
+        // Check nonce for security
+        check_ajax_referer('nehabi_logo_generation_nonce', 'security');
+        
+        // Log current user capabilities
+        $current_user = wp_get_current_user();
+        error_log('NEHABI LOGO GEN AJAX: Current User - ' . $current_user->user_login);
+        error_log('NEHABI LOGO GEN AJAX: User Capabilities - ' . implode(', ', $current_user->allcaps));
+        
+        // Verify user permissions
+        if (!current_user_can('manage_options')) {
+            error_log('NEHABI LOGO GEN AJAX: Insufficient Permissions');
+            wp_send_json_error([
+                'message' => 'You do not have sufficient permissions',
+                'user_login' => $current_user->user_login,
+                'user_roles' => $current_user->roles
+            ], 403);
+            wp_die();
+        }
+
+        // Sanitize and validate input
+        $company_name = sanitize_text_field($_POST['company_name'] ?? '');
+        $industry = sanitize_text_field($_POST['industry'] ?? '');
+        $color = sanitize_hex_color($_POST['color'] ?? '');
+        $style = sanitize_text_field($_POST['style'] ?? '');
+
+        // Validate inputs
+        if (empty($company_name)) {
+            error_log('NEHABI LOGO GEN AJAX: Missing Company Name');
+            wp_send_json_error([
+                'message' => 'Company name is required',
+                'input_received' => $_POST
+            ], 400);
+            wp_die();
+        }
+
+        // Generate logo
+        $logo_result = $this->generate_logo([
+            'company_name' => $company_name,
+            'industry' => $industry,
+            'color' => $color,
+            'style' => $style
+        ]);
+
+        // Handle logo generation result
+        if (is_wp_error($logo_result)) {
+            error_log('NEHABI LOGO GEN AJAX: Logo Generation Failed');
+            error_log('Error Code: ' . $logo_result->get_error_code());
+            error_log('Error Message: ' . $logo_result->get_error_message());
+            
+            wp_send_json_error([
+                'message' => $logo_result->get_error_message(),
+                'error_code' => $logo_result->get_error_code(),
+                'error_data' => $logo_result->get_error_data()
+            ], 500);
+            wp_die();
+        }
+
+        // Success response
+        error_log('NEHABI LOGO GEN AJAX: Logo Generated Successfully');
+        wp_send_json_success([
+            'logo_url' => $logo_result,
+            'message' => 'Logo generated successfully'
+        ]);
+        wp_die();
+    }
+
     public function register_logo_post_type() {
         $labels = [
             'name'               => 'Logos',
@@ -837,6 +925,371 @@ class NehabhAIAssistant {
         wp_register_style('slick-carousel', 'https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css', [], '1.8.1');
         wp_register_script('slick-carousel', 'https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js', ['jquery'], '1.8.1', true);
     }
+
+    public function register_settings() {
+        // Register Hugging Face API key setting
+        register_setting(
+            'nehabi_logo_settings_group', 
+            'nehabi_huggingface_api_key', 
+            [
+                'type' => 'string',
+                'sanitize_callback' => 'sanitize_text_field',
+                'default' => ''
+            ]
+        );
+
+        // Add settings section
+        add_settings_section(
+            'nehabi_logo_settings_section', 
+            'Logo Generation Settings', 
+            [$this, 'logo_settings_section_callback'], 
+            'nehabi-logo-generator'
+        );
+
+        // Add API key field
+        add_settings_field(
+            'nehabi_huggingface_api_key', 
+            'Hugging Face API Key', 
+            [$this, 'huggingface_api_key_callback'], 
+            'nehabi-logo-generator', 
+            'nehabi_logo_settings_section'
+        );
+    }
+
+    public function logo_settings_section_callback() {
+        echo '<p>Configure your Hugging Face API key for logo generation.</p>';
+    }
+
+    public function huggingface_api_key_callback() {
+        $api_key = get_option('nehabi_huggingface_api_key', '');
+        echo '<input type="text" name="nehabi_huggingface_api_key" value="' . esc_attr($api_key) . '" class="regular-text" />';
+        echo '<p class="description">Enter your Hugging Face API key. You can obtain one from <a href="https://huggingface.co/settings/tokens" target="_blank">Hugging Face Account Settings</a>.</p>';
+    }
+
+    public function handle_frontend_ai_chat_request() {
+        // Verify nonce for security
+        check_ajax_referer('nehabi_frontend_chat_nonce', 'security');
+
+        // Sanitize and validate input
+        $message = isset($_POST['message']) ? sanitize_text_field($_POST['message']) : '';
+        
+        if (empty($message)) {
+            wp_send_json_error('Empty message');
+        }
+
+        // Get site context
+        $site_context = $this->get_site_context();
+
+        // Get Hugging Face API key
+        $api_key = get_option('nehabi_huggingface_api_key');
+        if (empty($api_key)) {
+            wp_send_json_error('API key not configured');
+        }
+
+        // Get selected model
+        $model = get_option('nehabi_chatbot_model', 'qwen');
+        $model_map = [
+            'qwen' => 'Qwen/QwQ-32B-Preview',
+            'gpt2' => 'gpt2-large',
+            'bloom' => 'bigscience/bloom'
+        ];
+        $selected_model = $model_map[$model] ?? $model_map['qwen'];
+
+        // Call Hugging Face API
+        $response = $this->call_huggingface_chat_api($message, $site_context, $api_key, $selected_model);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error($response->get_error_message());
+        }
+
+        wp_send_json_success($response);
+    }
+
+    private function call_huggingface_chat_api($message, $context, $api_key, $model) {
+        $url = "https://api-inference.huggingface.co/models/{$model}";
+        
+        // Prepare augmented prompt with site context and response guidelines
+        $augmented_prompt = "Site Context: {$context}\n\n" .
+                            "User Query: {$message}\n\n" .
+                            "Response Guidelines:\n" .
+                            "- Respond in first person (I, my, we)\n" .
+                            "- Use contractions (I'm, we're, it's)\n" .
+                            "- Keep responses conversational and friendly\n" .
+                            "- Limit response to 2-3 sentences\n" .
+                            "- Speak as if you represent the website\n" .
+                            "- If greeting, offer help related to the site\n\n" .
+                            "Generate Response:";
+
+        $body = [
+            'inputs' => $augmented_prompt,
+            'parameters' => [
+                'max_new_tokens' => 100,
+                'temperature' => 0.7,
+                'return_full_text' => false
+            ]
+        ];
+
+        $args = [
+            'body' => wp_json_encode($body),
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'Authorization' => "Bearer {$api_key}"
+            ],
+            'timeout' => 30
+        ];
+
+        // Log the request details for debugging
+        error_log('Nehabi AI Chat Request Body: ' . wp_json_encode($body));
+
+        $response = wp_remote_post($url, $args);
+
+        if (is_wp_error($response)) {
+            error_log('Nehabi AI Chat WP Error: ' . $response->get_error_message());
+            return "Hi there! I'm having a bit of trouble right now, but I'm here to help when I can.";
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        // More robust error handling
+        if (empty($data) || !isset($data[0]['generated_text'])) {
+            error_log('Nehabi AI Chat Invalid Response: ' . $body);
+            return "Hey! I'm ready to assist you with any questions about our site.";
+        }
+
+        return trim($data[0]['generated_text']);
+    }
+
+    private function get_site_context() {
+        // Gather comprehensive contextual information about the website
+        $context = [
+            'site_info' => [
+                'name' => get_bloginfo('name'),
+                'description' => get_bloginfo('description'),
+                'url' => get_home_url(),
+                'language' => get_bloginfo('language')
+            ],
+            'current_page' => [
+                'title' => wp_title('', false),
+                'url' => get_permalink(),
+                'type' => get_post_type()
+            ],
+            'recent_content' => $this->gather_recent_content()
+        ];
+
+        return json_encode($context);
+    }
+
+    private function gather_recent_content($limit = 3) {
+        $recent_posts = wp_get_recent_posts([
+            'numberposts' => $limit,
+            'post_status' => 'publish'
+        ]);
+
+        $content_snippets = [];
+        foreach ($recent_posts as $post) {
+            $content_snippets[] = [
+                'title' => $post['post_title'],
+                'excerpt' => wp_trim_excerpt('', $post['ID']),
+                'url' => get_permalink($post['ID'])
+            ];
+        }
+
+        return $content_snippets;
+    }
+
+    public function nehabi_frontend_chatbot_shortcode($atts = []) {
+        // Shortcode to display chatbot widget
+        $atts = shortcode_atts([
+            'title' => 'AI Assistant',
+            'button_text' => 'Chat with AI',
+            'position' => 'bottom-right'
+        ], $atts, 'nehabi_chatbot');
+
+        // Start output buffering
+        ob_start();
+        ?>
+        <div id="nehabi-frontend-chatbot" class="nehabi-chatbot-widget <?php echo esc_attr($atts['position']); ?>">
+            <div class="chatbot-toggle-btn">
+                <?php echo esc_html($atts['button_text']); ?>
+            </div>
+            <div class="chatbot-container">
+                <div class="chatbot-header">
+                    <h3><?php echo esc_html($atts['title']); ?></h3>
+                    <button class="chatbot-close-btn">&times;</button>
+                </div>
+                <div class="chatbot-messages"></div>
+                <form class="chatbot-input-form">
+                    <textarea placeholder="Type your message..." required></textarea>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+        </div>
+        <?php
+        // Return the buffered content
+        return ob_get_clean();
+    }
+
+    public function render_frontend_chatbot() {
+        // Debug logging
+        error_log('Nehabi Chatbot Debug: Render Frontend Chatbot Called');
+
+        // Only render chatbot if conditions are met
+        if (!$this->should_display_chatbot()) {
+            error_log('Nehabi Chatbot Debug: Chatbot Not Displayed');
+            return;
+        }
+
+        error_log('Nehabi Chatbot Debug: Rendering Chatbot');
+
+        // Use the existing shortcode method to render
+        echo $this->nehabi_frontend_chatbot_shortcode([
+            'title' => get_bloginfo('name') . ' AI Assistant',
+            'button_text' => 'Chat with AI',
+            'position' => 'bottom-right'
+        ]);
+    }
+
+    public function should_display_chatbot() {
+        // Always log current page details for debugging
+        error_log('Nehabi Chatbot Debug: Current Page Details');
+        error_log('Pagenow: ' . ($GLOBALS['pagenow'] ?? 'Not Set'));
+        error_log('Request URI: ' . ($_SERVER['REQUEST_URI'] ?? 'Not Set'));
+        
+        // Check for explicit login-related conditions
+        $login_conditions = [
+            // WordPress default login pages
+            strpos($_SERVER['REQUEST_URI'], 'wp-login.php') !== false,
+            strpos($_SERVER['REQUEST_URI'], 'wp-signup.php') !== false,
+            
+            // Common login/signup paths
+            strpos($_SERVER['REQUEST_URI'], '/login/') !== false,
+            strpos($_SERVER['REQUEST_URI'], '/signin/') !== false,
+            strpos($_SERVER['REQUEST_URI'], '/signup/') !== false,
+            strpos($_SERVER['REQUEST_URI'], '/register/') !== false,
+            strpos($_SERVER['REQUEST_URI'], '/account/') !== false,
+            
+            // WooCommerce account page
+            (function_exists('is_account_page') && is_account_page()),
+            
+            // BuddyPress login page
+            (function_exists('bp_is_login_page') && bp_is_login_page())
+        ];
+
+        // Check if any login condition is true
+        foreach ($login_conditions as $condition) {
+            if ($condition) {
+                error_log('Nehabi Chatbot Debug: Login page detected');
+                return false;
+            }
+        }
+
+        // Additional checks for content
+        $is_admin = is_admin();
+        $is_404 = is_404();
+        $content_length = strlen(get_the_content());
+
+        error_log('Nehabi Chatbot Debug: Additional Checks');
+        error_log('Is Admin: ' . ($is_admin ? 'Yes' : 'No'));
+        error_log('Is 404: ' . ($is_404 ? 'Yes' : 'No'));
+        error_log('Content Length: ' . $content_length);
+
+        // Exclude admin pages and 404 pages
+        if ($is_admin || $is_404) {
+            return false;
+        }
+
+        // Optional: Minimum content length check (adjust as needed)
+        // If you want to ensure some content exists
+        // if ($content_length < 50) {
+        //     error_log('Nehabi Chatbot Debug: Content too short');
+        //     return false;
+        // }
+
+        // Default: show chatbot
+        error_log('Nehabi Chatbot Debug: Chatbot Allowed');
+        return true;
+    }
+
+    // Utility method to convert URL to protocol-relative
+    private function make_url_protocol_relative($url) {
+        // Remove http: or https: from the beginning of the URL
+        return preg_replace('/^https?:/', '', $url);
+    }
+
+    public function generate_logo_prompt($company_name, $industry, $style, $color_scheme = '', $primary_color = '', $secondary_color = '') {
+        // Sanitize inputs
+        $company_name = sanitize_text_field($company_name);
+        $industry = sanitize_text_field($industry);
+        $style = sanitize_text_field($style);
+        $primary_color = sanitize_hex_color($primary_color);
+        $secondary_color = sanitize_hex_color($secondary_color);
+
+        // Construct a detailed prompt for logo generation
+        $prompt = "Generate a professional logo for a {$industry} company named '{$company_name}'. ";
+        
+        // Add style details
+        switch ($style) {
+            case 'modern':
+                $prompt .= "Use a modern, sleek design with clean lines. ";
+                break;
+            case 'minimalist':
+                $prompt .= "Create a minimalist design with simple, elegant elements. ";
+                break;
+            case 'classic':
+                $prompt .= "Design a classic, timeless logo with traditional aesthetics. ";
+                break;
+            case 'playful':
+                $prompt .= "Develop a playful and creative logo with vibrant elements. ";
+                break;
+            case 'elegant':
+                $prompt .= "Craft an elegant and sophisticated logo design. ";
+                break;
+            default:
+                $prompt .= "Create a professional and versatile logo design. ";
+        }
+
+        // Add color information if colors are provided
+        if (!empty($primary_color) || !empty($secondary_color)) {
+            $prompt .= "Color scheme: ";
+            if (!empty($primary_color)) {
+                $prompt .= "Primary color {$primary_color}. ";
+            }
+            if (!empty($secondary_color)) {
+                $prompt .= "Secondary color {$secondary_color}. ";
+            }
+        }
+
+        // Add additional context based on industry
+        switch ($industry) {
+            case 'technology':
+                $prompt .= "Incorporate tech-inspired geometric shapes and innovative design elements. ";
+                break;
+            case 'finance':
+                $prompt .= "Use professional, trustworthy design with subtle financial symbolism. ";
+                break;
+            case 'healthcare':
+                $prompt .= "Design a compassionate and clean logo that conveys trust and care. ";
+                break;
+            case 'education':
+                $prompt .= "Create an inspiring logo that represents knowledge and growth. ";
+                break;
+            case 'retail':
+                $prompt .= "Develop an attractive and memorable logo that appeals to consumers. ";
+                break;
+            case 'hospitality':
+                $prompt .= "Design a welcoming and warm logo that suggests excellent service. ";
+                break;
+            default:
+                $prompt .= "Create a versatile logo that represents the company's core values. ";
+        }
+
+        // Final prompt refinement
+        $prompt .= "Ensure the logo is versatile, scalable, and works in both color and monochrome. ";
+        $prompt .= "Avoid using text in the logo. Focus on a unique, memorable symbol or icon.";
+
+        return $prompt;
+    }
 }
 
 // Initialize the plugin
@@ -845,226 +1298,12 @@ function nehabi_ai_assistant_init() {
 }
 add_action('plugins_loaded', 'nehabi_ai_assistant_init');
 
-// Image and Text Generator Module
-class NehabiContentGenerator {
-    private $huggingface_api_key;
-    private $image_models = [
-        'stable-diffusion' => 'stabilityai/stable-diffusion-xl-base-1.0',
-        'sdxl-turbo' => 'stabilityai/sdxl-turbo',
-        'kandinsky' => 'kandinsky-community/kandinsky-2-2-decoder'
-    ];
-    private $text_models = [
-        'gpt-2' => 'gpt2-large',
-        'bloom' => 'bigscience/bloom',
-        'flan-t5' => 'google/flan-t5-large'
-    ];
-
-    public function __construct() {
-        $this->huggingface_api_key = defined('HUGGINGFACE_API_KEY') ? HUGGINGFACE_API_KEY : '';
-        $this->register_hooks();
-    }
-
-    private function register_hooks() {
-        add_action('wp_ajax_nehabi_generate_image', [$this, 'generate_image']);
-        add_action('wp_ajax_nehabi_generate_text', [$this, 'generate_text']);
-        add_action('wp_ajax_nehabi_record_content', [$this, 'record_content']);
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_content_generator_scripts']);
-    }
-
-    public function enqueue_content_generator_scripts() {
-        wp_enqueue_script('nehabi-content-generator', 
-            plugin_dir_url(__FILE__) . 'assets/js/content-generator.js', 
-            ['jquery'], 
-            '1.0', 
-            true
-        );
-        wp_localize_script('nehabi-content-generator', 'nehabi_content_params', [
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('nehabi_content_generator_nonce')
-        ]);
-    }
-
-    public function generate_image() {
-        check_ajax_referer('nehabi_content_generator_nonce', 'security');
-
-        $prompt = sanitize_text_field($_POST['prompt']);
-        $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : 'stable-diffusion';
-
-        try {
-            $response = wp_remote_post('https://api-inference.huggingface.co/models/' . $this->image_models[$model], [
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $this->huggingface_api_key,
-                    'Content-Type' => 'application/json'
-                ],
-                'body' => json_encode([
-                    'inputs' => $prompt,
-                    'parameters' => [
-                        'width' => 512,
-                        'height' => 512,
-                        'num_inference_steps' => 50
-                    ]
-                ]),
-                'timeout' => 120
-            ]);
-
-            if (is_wp_error($response)) {
-                wp_send_json_error('Image generation failed: ' . $response->get_error_message());
-            }
-
-            $image_data = wp_remote_retrieve_body($response);
-            $upload_dir = wp_upload_dir();
-            $filename = 'nehabi-image-' . uniqid() . '.png';
-            $file_path = $upload_dir['path'] . '/' . $filename;
-
-            file_put_contents($file_path, $image_data);
-
-            $attachment = [
-                'guid' => $upload_dir['url'] . '/' . $filename,
-                'post_mime_type' => 'image/png',
-                'post_title' => $filename,
-                'post_content' => '',
-                'post_status' => 'inherit'
-            ];
-
-            $attach_id = wp_insert_attachment($attachment, $file_path);
-            
-            wp_send_json_success([
-                'url' => wp_get_attachment_url($attach_id),
-                'id' => $attach_id,
-                'prompt' => $prompt
-            ]);
-        } catch (Exception $e) {
-            wp_send_json_error('Image generation error: ' . $e->getMessage());
-        }
-        wp_die();
-    }
-
-    public function generate_text() {
-        check_ajax_referer('nehabi_content_generator_nonce', 'security');
-
-        $prompt = sanitize_text_field($_POST['prompt']);
-        $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : 'gpt-2';
-        $max_length = isset($_POST['max_length']) ? intval($_POST['max_length']) : 100;
-
-        try {
-            $response = wp_remote_post('https://api-inference.huggingface.co/models/' . $this->text_models[$model], [
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $this->huggingface_api_key,
-                    'Content-Type' => 'application/json'
-                ],
-                'body' => json_encode([
-                    'inputs' => $prompt,
-                    'parameters' => [
-                        'max_length' => $max_length,
-                        'num_return_sequences' => 1
-                    ]
-                ]),
-                'timeout' => 120
-            ]);
-
-            if (is_wp_error($response)) {
-                wp_send_json_error('Text generation failed: ' . $response->get_error_message());
-            }
-
-            $text_data = json_decode(wp_remote_retrieve_body($response), true);
-            wp_send_json_success([
-                'text' => $text_data[0]['generated_text'] ?? '',
-                'prompt' => $prompt
-            ]);
-        } catch (Exception $e) {
-            wp_send_json_error('Text generation error: ' . $e->getMessage());
-        }
-        wp_die();
-    }
-
-    public function record_content() {
-        check_ajax_referer('nehabi_content_generator_nonce', 'security');
-
-        $content_type = sanitize_text_field($_POST['content_type']);
-        $content = sanitize_textarea_field($_POST['content']);
-        $title = sanitize_text_field($_POST['title'] ?? 'Untitled');
-
-        $post_type = $content_type === 'image' ? 'nehabi_generated_image' : 'nehabi_generated_text';
-
-        $post_data = [
-            'post_title' => $title,
-            'post_content' => $content,
-            'post_status' => 'publish',
-            'post_type' => $post_type
-        ];
-
-        $post_id = wp_insert_post($post_data);
-
-        if ($post_id) {
-            // Add metadata if needed
-            add_post_meta($post_id, 'nehabi_generation_prompt', $_POST['prompt'] ?? '');
-            add_post_meta($post_id, 'nehabi_generation_model', $_POST['model'] ?? '');
-
-            wp_send_json_success([
-                'id' => $post_id,
-                'message' => ucfirst($content_type) . ' recorded successfully'
-            ]);
-        } else {
-            wp_send_json_error('Failed to record content');
-        }
-        wp_die();
-    }
-
-    public function register_custom_post_types() {
-        register_post_type('nehabi_generated_image', [
-            'labels' => [
-                'name' => 'Generated Images',
-                'singular_name' => 'Generated Image'
-            ],
-            'public' => true,
-            'has_archive' => true,
-            'supports' => ['title', 'editor', 'thumbnail']
-        ]);
-
-        register_post_type('nehabi_generated_text', [
-            'labels' => [
-                'name' => 'Generated Texts',
-                'singular_name' => 'Generated Text'
-            ],
-            'public' => true,
-            'has_archive' => true,
-            'supports' => ['title', 'editor']
-        ]);
-    }
-
-    public function init() {
-        $this->register_custom_post_types();
-    }
+// Remove any standalone menu registration functions
+if (function_exists('nehabi_logo_gen_menu')) {
+    remove_action('admin_menu', 'nehabi_logo_gen_menu');
 }
 
-// Initialize the content generator
-$nehabi_content_generator = new NehabiContentGenerator();
-add_action('init', [$nehabi_content_generator, 'init']);
-
-// Enqueue Content Generator Assets
-function nehabi_enqueue_content_generator_assets() {
-    // Enqueue CSS
-    wp_enqueue_style(
-        'nehabi-content-generator-css', 
-        plugin_dir_url(__FILE__) . 'css/content-generator.css', 
-        [], 
-        '1.0'
-    );
-
-    // Enqueue JS
-    wp_enqueue_script(
-        'nehabi-content-generator-js', 
-        plugin_dir_url(__FILE__) . 'assets/js/content-generator.js', 
-        ['jquery'], 
-        '1.0', 
-        true
-    );
-
-    // Localize script with AJAX URL and nonce
-    wp_localize_script('nehabi-content-generator-js', 'nehabi_content_params', [
-        'ajax_url' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('nehabi_content_generator_nonce')
-    ]);
+// Remove any standalone logo generator page function
+if (function_exists('nehabi_logo_generator_page')) {
+    remove_action('admin_menu', 'nehabi_logo_generator_page');
 }
-add_action('wp_enqueue_scripts', 'nehabi_enqueue_content_generator_assets');
-add_action('admin_enqueue_scripts', 'nehabi_enqueue_content_generator_assets');
